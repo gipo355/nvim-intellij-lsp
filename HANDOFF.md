@@ -389,19 +389,48 @@ a client-side `runCommands` chain (caret ModCommand +
 `editor.action.rename`) that `completion.run_commands` translates
 (rename → `vim.lsp.buf.rename()`).
 
-### 6.10 jdtls conflicts
+### 6.10 Completion matching is first-letter case-sensitive — server-side, no knob
+
+Probed 2026-08-07 (headless, tiny Gradle project, warm index): `Str` → 25
+items incl. `String` (~600 ms); `str` and `string` → **0 items**,
+`isIncomplete=false`. The filter is the server's — client fuzzy matchers
+(blink's frizbee is case-insensitive) never see the items, so they can't help.
+
+Dead ends, tested:
+
+- The extension's `contributes.configuration` (42 properties) has **no**
+  completion/case setting.
+- `-Didea.config.path=<dir>` with `options/editor.codeinsight.xml`
+  (`COMPLETION_CASE_SENSITIVE = 2`/NONE) changes nothing. The server never
+  creates or reads an IDE config dir at all (nothing under `--system-path`
+  either) — the LSP completion path doesn't consult `CodeInsightSettings`.
+
+Workaround: type the capital (`Str`). A client-side fix would need a
+"shadow capitalization" retry (didChange a capitalized prefix → re-request →
+restore) — not implemented. Worth reporting upstream.
+
+### 6.11 Server heap defaults to 2 GB
+
+`bin/intellij-server.vmoptions` hardcodes `-Xmx2048m` (plus
+`-XX:ReservedCodeCacheSize=512m`). On a 130-library project completion takes
+seconds; the tiny-probe baseline is ~600 ms per request, so heavy projects are
+mostly heap/GC. `jvm_args = { '-Xmx4g' }` → `IJ_JAVA_OPTIONS` is the lever
+(the xplat launcher reads that env var; strings in the binary confirm it).
+Note the vmoptions defaults come *before* user options, so `-Xmx4g` wins.
+
+### 6.12 jdtls conflicts
 
 Both index the whole project and both publish diagnostics. Switching away from
 jdtls also disables everything riding on it: **neotest-java**, the
 java-debug/java-test DAP bundles, and lombok javaagent wiring.
 
-### 6.11 Preview builds expire
+### 6.13 Preview builds expire
 
 Each build stops working ~30 days after release; new builds roughly every 2
 weeks. Re-run `:IntellijInstall <version>`, re-accept the EULA. Free during
 preview; Ultimate required from 1.0 (§8).
 
-### 6.12 The server never compiles — launch needs prebuilt classes
+### 6.14 The server never compiles — launch needs prebuilt classes
 
 DAP `launch` (and any `java -cp` run) dies with `ClassNotFoundException`
 when the module output dirs are empty: the IDE's before-run build step does
@@ -410,14 +439,14 @@ paths, not verified ones. `run.ensure_compiled()` detects missing
 `build/classes` entries and offers `./gradlew classes` / `mvn compile`
 before both `:IntellijRun` and `:IntellijDebug`.
 
-### 6.13 Definition on import lines returns `[]`
+### 6.15 Definition on import lines returns `[]`
 
 `textDocument/definition` with the cursor on an `import` statement answers an
 empty array (confirmed twice, different imports). Jump from a *usage* in
 code. Anything that probes readiness or tests navigation must not anchor on
 import lines.
 
-### 6.14 Headless probing etiquette
+### 6.16 Headless probing etiquette
 
 A headless nvim that dies without `client:stop(true)` leaves the server
 child running, and the orphan squats on the shared index lock (§6.7) —
@@ -426,7 +455,7 @@ harness (scratchpad `probe.lua`) stops the client on exit and carries a
 watchdog timer; check `pgrep -af 'system-path'` for orphans when anything
 hangs.
 
-### 6.15 Two servers, similar names
+### 6.17 Two servers, similar names
 
 `intellij-server` is also kotlin-lsp's launcher name. With kotlin.nvim
 installed, `kotlin = 'auto'` (default) yields Kotlin buffers to it. `kotlin =
@@ -482,8 +511,9 @@ Then, roughly in value order:
 - **Inlay hints** — keys already answered; needs `vim.lsp.inlay_hint.enable`
   wiring and per-key options
 - **Performance** — zuul: 1m15s import + indexing, cached after. Measure a warm
-  start; `jvm_args = { '-Xmx4g' }` is the untested lever, and the server echoes
-  `IJ_JAVA_OPTIONS=` at startup so it can be confirmed rather than assumed
+  start; `jvm_args = { '-Xmx4g' }` is the lever (see 6.11 — default heap is a
+  hard 2 GB and the launcher reads `IJ_JAVA_OPTIONS`), effect on a large
+  project not yet measured
 - **Install ergonomics** — auto-install on first attach instead of manual
   `:IntellijInstall`; Mason registry PR (**no package exists** for this server —
   checked, only `kotlin-lsp` does)

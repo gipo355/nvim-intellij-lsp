@@ -25,7 +25,7 @@ local M = {}
 ---@field root_markers? (string|string[])[] Priority-grouped root markers.
 ---@field build_tool? 'gradle'|'maven'|'bazel' Pinned per-root build system.
 ---@field workspace_dir? string Base directory for per-project `--system-path` isolation.
----@field inlay_hints? boolean Answer the server's hint settings with the VS Code defaults. Default true.
+---@field inlay_hints? boolean|'manual' Answer the server's hint settings with the VS Code defaults and show hints on attach. `'manual'` keeps the settings answer (so hints work when you enable them) but never turns the display on — your own config/keymaps own `vim.lsp.inlay_hint`. Default true.
 ---@field bazel_projectview? string Path to a Bazel projectview file.
 ---@field bazel_build? boolean Let the server run Bazel builds.
 ---@field version? string Server build to install and prefer.

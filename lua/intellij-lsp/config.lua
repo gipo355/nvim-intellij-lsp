@@ -360,8 +360,9 @@ function M.build()
     on_attach = function(client, bufnr)
       -- The settings side (which hint kinds, their options) is answered via
       -- workspace/configuration; this is the display side. Default-on to
-      -- match what the VS Code client shows out of the box.
-      if opts.inlay_hints and client.server_capabilities.inlayHintProvider then
+      -- match what the VS Code client shows out of the box. 'manual' answers
+      -- the settings but leaves the display to the user's own config.
+      if opts.inlay_hints == true and client.server_capabilities.inlayHintProvider then
         vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })
       end
 
