@@ -225,47 +225,46 @@ function M.install(version, on_done)
 
   vim.notify('intellij-lsp: downloading ' .. url, vim.log.levels.INFO)
 
+  -- The completion callback fires in a fast event context, where vim.fn and
+  -- vim.system():wait() (used by M.verify) are not allowed — hop to the main
+  -- loop before doing anything else.
   vim.system({ 'curl', '-fL', '--retry', '3', '-o', archive, url }, { text = true }, function(dl)
-    if dl.code ~= 0 then
-      vim.schedule(function()
+    vim.schedule(function()
+      if dl.code ~= 0 then
         vim.fn.delete(dest, 'rf')
         on_done(nil, ('download failed (curl %d) for %s\n%s'):format(dl.code, url, dl.stderr or ''))
-      end)
-      return
-    end
+        return
+      end
 
-    local ok, message = M.verify(archive)
-    if not ok then
-      vim.schedule(function()
+      local ok, message = M.verify(archive)
+      if not ok then
         vim.fn.delete(dest, 'rf')
         on_done(nil, message)
-      end)
-      return
-    end
-    if message then
-      vim.schedule(function()
+        return
+      end
+      if message then
         vim.notify('intellij-lsp: ' .. message, vim.log.levels.WARN)
-      end)
-    end
+      end
 
-    vim.system(extract_argv(archive, dest), { text = true }, function(ex)
-      vim.schedule(function()
-        vim.fn.delete(archive)
+      vim.system(extract_argv(archive, dest), { text = true }, function(ex)
+        vim.schedule(function()
+          vim.fn.delete(archive)
 
-        if ex.code ~= 0 then
-          on_done(nil, ('extract failed (%d)\n%s'):format(ex.code, ex.stderr or ''))
-          return
-        end
+          if ex.code ~= 0 then
+            on_done(nil, ('extract failed (%d)\n%s'):format(ex.code, ex.stderr or ''))
+            return
+          end
 
-        local launcher = require('intellij-lsp.server').resolve_dir(dest)
-        if not launcher then
-          on_done(nil, 'archive unpacked but no bin/intellij-server inside ' .. dest)
-          return
-        end
+          local launcher = require('intellij-lsp.server').resolve_dir(dest)
+          if not launcher then
+            on_done(nil, 'archive unpacked but no bin/intellij-server inside ' .. dest)
+            return
+          end
 
-        -- Archives do not always preserve the executable bit.
-        vim.uv.fs_chmod(launcher, 493) -- 0755
-        on_done(launcher, nil)
+          -- Archives do not always preserve the executable bit.
+          vim.uv.fs_chmod(launcher, 493) -- 0755
+          on_done(launcher, nil)
+        end)
       end)
     end)
   end)
