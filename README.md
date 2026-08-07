@@ -89,20 +89,27 @@ require('intellij-lsp').setup({
   jdk = nil,               -- JDK used to resolve symbols in your code
   jvm_args = {},           -- e.g. { '-Xmx4g' }, forwarded via IJ_JAVA_OPTIONS
   kotlin = 'auto',         -- 'auto' yields Kotlin buffers to kotlin.nvim; true forces, false disables
+  filetypes = nil,         -- override the filetypes the client attaches to
   build_tool = nil,        -- 'gradle' | 'maven' | 'bazel'
-  inlay_hints = true,      -- answer the server's hint settings with the VS Code defaults
+  inlay_hints = true,      -- answer the server's hint settings with the VS Code defaults;
+                           -- true also enables them in the buffer, 'manual' only answers
   bazel_projectview = nil, -- path to a Bazel projectview file
+  bazel_build = nil,       -- forwarded as 'intellij.bazel.build'
   version = nil,           -- server build to install and prefer
+  accept_eula = false,     -- accept without the :IntellijAcceptEula prompt
   data_sharing = 'none',   -- 'none' | 'anonymous' | 'full', via INTELLIJ_DATA_SHARING
   region = nil,            -- via INTELLIJ_REGION
   root_markers = nil,      -- priority-grouped; workspace files beat per-module build files
   workspace_dir = nil,     -- base dir for per-project --system-path isolation
+  isolate_index = true,    -- per-project indexDir; false shares the analyzer cache
+  codelens = true,         -- enable the server's code lenses on attach
   settings = {},           -- merged over defaults, flat 'jetbrains.*' keys
   init_options = {},
   cmd_extra = {},
   log_level = nil,         -- 'DEBUG' etc., forwarded as --log-level
   organize_imports_on_save = false,
   import_notify = true,    -- notify when the project import lands (no $/progress exists)
+  uri_timeout_ms = 5000,   -- wait for decompiled/library sources to arrive
   completion_fix = true,   -- see below
 })
 ```
@@ -119,9 +126,24 @@ require('intellij-lsp').setup({
 | `:IntellijStatus` | Show attached clients and roots |
 | `:IntellijLog` | Open the server's own log (first stop when debugging) |
 | `:IntellijRun [args]` | Run the current buffer's main class (classpath resolved by the server) |
+| `:IntellijDebug` | Debug the current buffer's main class (needs nvim-dap) |
 | `:IntellijOrganizeImports` | Organize imports in the current buffer |
+| `:IntellijExportWorkspace` | Dump the server's workspace model to `<root>/workspace.json` |
 | `:IntellijPrune` | Delete all but the newest ~1 GB server install |
 | `:checkhealth intellij-lsp` | Diagnose launcher, JDK, workspace, **import state**, disk, conflicts |
+
+## Debugging
+
+The server hosts IntelliJ's XDebugger behind a DAP endpoint, so no VS Code
+pieces are involved. When [nvim-dap](https://github.com/mfussenegger/nvim-dap)
+is installed, `setup()` registers an `intellij` adapter plus launch/attach
+configurations for `java` and `kotlin` — `start_debug_server` returns a fresh
+port per session and the adapter ID is `intellij_debugger`.
+
+`:IntellijDebug` runs the current buffer's main class and attaches to it.
+Classpath and cwd come from the server's own workspace model, so the launch
+config needs nothing but the main class. Without nvim-dap the registration is a
+silent no-op.
 
 ## Notes on the server's quirks
 
