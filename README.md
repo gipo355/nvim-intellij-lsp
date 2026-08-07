@@ -212,3 +212,6 @@ required from 1.0, covering the desktop IDE and other environments alike. For
 pure-Kotlin work, kotlin-lsp is Apache 2.0 and free.
 
 This plugin is MIT. It ships no JetBrains code.
+
+Not affiliated with or endorsed by JetBrains. IntelliJ and JetBrains are
+trademarks of JetBrains s.r.o.

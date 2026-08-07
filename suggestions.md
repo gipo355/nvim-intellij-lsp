@@ -1,0 +1,4 @@
+- smartcase completions (e.g. string)
+- groovy/gradle lsp
+- better support for postfix/command completions
+- no single index lock per project

@@ -5,13 +5,12 @@
 # bundled inside the VSIX or downloaded from JetBrains' CDN on first launch, and
 # what exactly does the VS Code client pass to it?
 #
-# Writes text reports to recon/ (commit these) and keeps the large binaries in
-# .recon-tmp/ (gitignored).
+# Writes text reports to recon/ and keeps the large binaries in .recon-tmp/.
+# Both are gitignored on purpose: the reports embed JetBrains' own files
+# (package.json, string dumps), which are theirs to distribute — keep them local.
 #
 #   ./scripts/recon.sh            # auto-detect platform
 #   ./scripts/recon.sh linux-x64  # or force a target
-#
-# Then: git add recon && git commit -m "recon: intellij-server VSIX layout" && git push
 
 set -uo pipefail
 
@@ -209,6 +208,5 @@ Done. Reports in recon/:
   launcher.txt            bundled launcher + its --help
   cdn-probe.txt           whether a direct tarball path exists
 
-Commit them:
-  git add recon && git commit -m "recon: intellij-server VSIX layout" && git push
+These stay local (gitignored): they embed JetBrains' own files.
 EOF
