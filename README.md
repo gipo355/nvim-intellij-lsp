@@ -1,5 +1,12 @@
 # nvim-intellij-lsp
 
+> [!WARNING]
+> Experimental. The jb server is in preview, and the plugin is a first attempt. Can have breaking changes.
+>
+> Please provide feedback upstream to JB.
+>
+> Made with ai.
+
 Neovim client for JetBrains' IntelliJ language server — the one behind the
 ["Java and Kotlin by IntelliJ IDEA"](https://open-vsx.org/extension/JetBrains/intellij-server)
 extension (`JetBrains.intellij-server`).
