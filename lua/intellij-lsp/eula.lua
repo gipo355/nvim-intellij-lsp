@@ -94,7 +94,9 @@ end
 
 --- Show the agreement and ask for an explicit yes.
 ---@param launcher? string
-function M.prompt(launcher)
+---@param on_accept? fun() Called after acceptance is recorded, in place of the
+--- "run :IntellijRestart" hint.
+function M.prompt(launcher, on_accept)
   launcher = launcher or require('intellij-lsp.server').find_or_notify()
   if not launcher then
     return
@@ -131,6 +133,11 @@ function M.prompt(launcher)
     end
 
     M.record(hash)
+    if on_accept then
+      vim.notify('intellij-lsp: accepted ' .. hash, vim.log.levels.INFO)
+      on_accept()
+      return
+    end
     vim.notify(
       'intellij-lsp: accepted ' .. hash .. '\nRun :IntellijRestart or reopen the file.',
       vim.log.levels.INFO
