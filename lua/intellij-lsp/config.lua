@@ -17,12 +17,19 @@ local DEFAULT_ROOT_MARKERS = {
   { '.git' },
 }
 
---- True when kotlin.nvim is on the runtimepath, in which case it already owns
---- Kotlin buffers and we should not start a second IntelliJ server for them.
+--- True when something else already owns Kotlin buffers: kotlin.nvim on the
+--- runtimepath, or lspconfig's `kotlin_lsp` enabled. Either way it is an
+--- IntelliJ server of its own, and two of those is ~2 GB of duplicate index.
 ---@return boolean
-local function kotlin_nvim_installed()
-  return #vim.api.nvim_get_runtime_file('lua/kotlin.lua', false) > 0
+local function kotlin_server_claimed()
+  if
+    #vim.api.nvim_get_runtime_file('lua/kotlin.lua', false) > 0
     or #vim.api.nvim_get_runtime_file('lua/kotlin/init.lua', false) > 0
+  then
+    return true
+  end
+  -- vim.lsp.is_enabled is newer than the 0.11 floor this plugin supports.
+  return type(vim.lsp.is_enabled) == 'function' and vim.lsp.is_enabled('kotlin_lsp')
 end
 
 ---@param opts intellij.Opts
@@ -34,7 +41,7 @@ local function filetypes(opts)
 
   local want_kotlin = opts.kotlin
   if want_kotlin == 'auto' then
-    want_kotlin = not kotlin_nvim_installed()
+    want_kotlin = not kotlin_server_claimed()
   end
 
   return want_kotlin and { 'java', 'kotlin' } or { 'java' }

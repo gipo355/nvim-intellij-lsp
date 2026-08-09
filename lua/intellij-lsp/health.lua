@@ -28,6 +28,24 @@ local function check_server()
 
   vim.health.ok('launcher: ' .. path)
 
+  -- kotlin-lsp ships a launcher with this exact name, so a stray one on $PATH
+  -- resolves happily and then answers nothing for Java: it carries
+  -- java-base.lsp (PSI for Kotlin) but no java.lsp frontend. product-info.json
+  -- is what tells them apart — LS is the Kotlin build, ILS this one.
+  local info = vim.fs.dirname(vim.fs.dirname(path)) .. '/product-info.json'
+  if vim.fn.filereadable(info) == 1 then
+    local ok, product = pcall(vim.json.decode, table.concat(vim.fn.readfile(info), '\n'))
+    local code = ok and type(product) == 'table' and product.productCode or nil
+    if code == 'LS' then
+      vim.health.error('this is the kotlin-lsp build (productCode LS) — it has no Java support', {
+        'Run :IntellijInstall, or point server_dir at an ILS install',
+        'A kotlin-lsp launcher on $PATH has the same name and wins by accident',
+      })
+    elseif code and code ~= 'ILS' then
+      vim.health.warn(('unexpected productCode %s (expected ILS)'):format(code))
+    end
+  end
+
   local eula = require('intellij-lsp.eula')
   local accepted, hash = eula.accepted(path)
   if not hash then
@@ -192,24 +210,31 @@ local function check_conflicts()
   vim.health.start('Conflicts')
 
   local opts = require('intellij-lsp').options()
-  local kotlin_nvim = #vim.api.nvim_get_runtime_file('lua/kotlin.lua', false) > 0
+  local claimant
+  if
+    #vim.api.nvim_get_runtime_file('lua/kotlin.lua', false) > 0
     or #vim.api.nvim_get_runtime_file('lua/kotlin/init.lua', false) > 0
+  then
+    claimant = 'kotlin.nvim'
+  elseif type(vim.lsp.is_enabled) == 'function' and vim.lsp.is_enabled('kotlin_lsp') then
+    claimant = "lspconfig's kotlin_lsp"
+  end
 
   local fts = require('intellij-lsp.config')
   local ok, config = pcall(fts.build)
   local attached = ok and table.concat(config.filetypes or {}, ', ') or '?'
 
-  if kotlin_nvim then
+  if claimant then
     if opts.kotlin == true then
-      vim.health.warn('kotlin.nvim is installed and `kotlin = true` forces us to attach anyway', {
+      vim.health.warn(claimant .. ' owns Kotlin and `kotlin = true` forces us to attach anyway', {
         'Two IntelliJ servers may index the same project',
         'Exclude kotlin from one of them',
       })
     else
-      vim.health.ok('kotlin.nvim installed — yielding Kotlin buffers to it')
+      vim.health.ok(claimant .. ' detected — yielding Kotlin buffers to it')
     end
   else
-    vim.health.ok('no kotlin.nvim install detected')
+    vim.health.ok('nothing else claims Kotlin buffers')
   end
 
   vim.health.info('filetypes: ' .. attached)

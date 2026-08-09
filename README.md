@@ -88,7 +88,7 @@ require('intellij-lsp').setup({
   server_dir = nil,        -- install root with bin/intellij-server; else $INTELLIJ_SERVER_DIR, else $PATH
   jdk = nil,               -- JDK used to resolve symbols in your code
   jvm_args = {},           -- e.g. { '-Xmx4g' }, forwarded via IJ_JAVA_OPTIONS
-  kotlin = 'auto',         -- 'auto' yields Kotlin buffers to kotlin.nvim; true forces, false disables
+  kotlin = 'auto',         -- 'auto' yields Kotlin to kotlin.nvim or kotlin_lsp; true forces, false disables
   filetypes = nil,         -- override the filetypes the client attaches to
   build_tool = nil,        -- 'gradle' | 'maven' | 'bazel'
   inlay_hints = true,      -- answer the server's hint settings with the VS Code defaults;
@@ -224,13 +224,36 @@ Things to know before hacking:
   JetBrains' own files). `scripts/probe.lua` is a headless LSP probe
   harness: `PROBE_FILE=<java file> nvim --headless --clean -l scripts/probe.lua caps`.
 
+## Relationship to kotlin-lsp
+
+They share a codebase and a launcher name.
+[kotlin-lsp](https://github.com/Kotlin/kotlin-lsp)'s own `product-info.json`
+sets `name = intellij-server`, and lspconfig's `kotlin_lsp` entry has run
+`intellij-server --stdio` for months. None of that is new.
+
+They are not the same build. Comparing kotlin-server 262.9593.0 with
+intellij-server 263.2689.0:
+
+| | kotlin-lsp | this server |
+| --- | --- | --- |
+| `productCode` | `LS` | `ILS` |
+| Java plugins | `java-base.lsp` (the PSI Kotlin needs) | plus `java.lsp`, `spring.lsp`, `bazel.lsp`, `lombok` |
+| Agreement | none | `EULA.txt`; init refused without its hash |
+| Licence | Apache-2.0 | EAP preview, expires ~30 days |
+
+Check yours with `grep productCode <install-root>/product-info.json`. A
+kotlin-lsp launcher on `$PATH` resolves under this plugin and then answers
+nothing for Java — `:checkhealth intellij-lsp` names that case.
+
+JetBrains may well fold the two together; the naming already points that way.
+Today they ship from different URLs under different terms.
+
 ## Relationship to kotlin.nvim
 
-[kotlin.nvim](https://github.com/AlexandrosAlexiou/kotlin.nvim) covers the
-Apache-2.0 [kotlin-lsp](https://github.com/Kotlin/kotlin-lsp) through the same
-`bin/intellij-server` launcher. If it is installed, `kotlin = 'auto'` (the
-default) leaves Kotlin buffers to it and this plugin takes Java only. Set
-`kotlin = true` to have one server handle both.
+[kotlin.nvim](https://github.com/AlexandrosAlexiou/kotlin.nvim) drives
+kotlin-lsp. If it is installed — or lspconfig's `kotlin_lsp` is enabled —
+`kotlin = 'auto'` (the default) leaves Kotlin buffers to it and this plugin
+takes Java only. Set `kotlin = true` to have one server handle both.
 
 Credit where due: kotlin.nvim documented the completion and workspace pitfalls
 above first. The implementations here are our own.
