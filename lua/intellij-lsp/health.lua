@@ -57,11 +57,11 @@ local function check_server()
   if age then
     if age >= 30 then
       vim.health.error(('build is %d days old — preview builds expire around 30 days'):format(age), {
-        'Run :IntellijInstall <newer-version> and re-accept the agreement',
+        'Run :IntellijUpdate and re-accept the agreement if it changed',
       })
     elseif age >= 25 then
       vim.health.warn(('build is %d days old — preview builds expire around 30 days'):format(age), {
-        'A newer build likely exists; plan to :IntellijInstall soon',
+        'Run :IntellijUpdate to check for a newer build',
       })
     else
       vim.health.ok(('build age: %d days (previews expire ~30 days after release)'):format(age))

@@ -119,6 +119,7 @@ require('intellij-lsp').setup({
 | Command | Effect |
 | --- | --- |
 | `:IntellijInstall [version]` | Download the server from JetBrains |
+| `:IntellijUpdate` | Discover JetBrains' latest platform build, install it, and restart the server |
 | `:IntellijAcceptEula` | Show the bundled agreement and record acceptance |
 | `:IntellijRestart` | Stop and re-attach the server |
 | `:IntellijCleanWorkspace` | Delete this project's server state |
@@ -180,6 +181,14 @@ which is translated (their rename step becomes `vim.lsp.buf.rename()`).*
 `workspace/configuration` by section; inlay hints do nothing without an answer.
 Flat `jetbrains.*` keys in `settings` are reassembled into the nested objects
 the server asks for.
+
+**Updating follows JetBrains' own bundle manifest.** `:IntellijUpdate` fetches
+the latest platform-specific extension metadata from Open VSX, reads its
+`server-bundle.json`, verifies the published SHA-256, installs the prebuilt
+server side-by-side, and restarts attached clients. A genuinely newer preview
+build has a newer expiry window; reinstalling the same archive does not reset
+its expiry. A changed agreement is shown for acceptance before the new build
+can start, and accepting it restarts the server from there.
 
 ## Development
 

@@ -61,13 +61,17 @@ function M.find()
     table.insert(candidates, env)
   end
 
-  -- Anything :IntellijInstall put in place, newest version first.
+  -- Anything :IntellijInstall put in place, newest version first. An explicit
+  -- version is a pin and therefore takes precedence over the rolling newest
+  -- build (server_dir and $INTELLIJ_SERVER_DIR remain stronger overrides).
   local install = require('intellij-lsp.install')
-  local managed = vim.fn.glob(install.root() .. '/*', false, true)
-  table.sort(managed, function(a, b)
-    return a > b
-  end)
-  vim.list_extend(candidates, managed)
+  if opts.version then
+    table.insert(candidates, install.install_dir(opts.version))
+  else
+    for _, entry in ipairs(install.installed()) do
+      table.insert(candidates, entry.dir)
+    end
+  end
 
   for _, dir in ipairs(candidates) do
     local found = M.resolve_dir(dir)

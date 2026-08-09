@@ -17,6 +17,13 @@
 local M = {}
 
 local BASE = 'https://download.jetbrains.com/language-server/intellij-server'
+local OPEN_VSX_API = 'https://open-vsx.org/api/JetBrains/intellij-server'
+
+---@class intellij.ServerBundle
+---@field url string
+---@field version string
+---@field archiveName string
+---@field sha256 string
 
 --- Server build shipped with extension 0.0.8.
 M.DEFAULT_VERSION = '263.2689.0'
@@ -50,10 +57,11 @@ end
 
 --- Verify a downloaded archive.
 ---@param path string
+---@param expected? string
 ---@return boolean ok
 ---@return string? message
-function M.verify(path)
-  local expected = M.CHECKSUMS[vim.fs.basename(path)]
+function M.verify(path, expected)
+  expected = expected or M.CHECKSUMS[vim.fs.basename(path)]
   if not expected then
     return true, 'no published checksum for this build — skipping verification'
   end
@@ -66,6 +74,145 @@ function M.verify(path)
     return false, ('checksum mismatch\n  expected %s\n  got      %s'):format(expected, actual)
   end
   return true, nil
+end
+
+---@return string? target
+local function open_vsx_target()
+  local machine = vim.uv.os_uname().machine:lower()
+  local arch
+  if machine == 'arm64' or machine == 'aarch64' then
+    arch = 'arm64'
+  elseif machine == 'x86_64' or machine == 'amd64' then
+    arch = 'x64'
+  else
+    return nil
+  end
+  if vim.fn.has('win32') == 1 then
+    return 'win32-' .. arch
+  end
+  if vim.fn.has('mac') == 1 then
+    return 'darwin-' .. arch
+  end
+  if vim.fn.has('unix') == 1 then
+    return 'linux-' .. arch
+  end
+  return nil
+end
+
+---@param body string?
+---@return table?
+---@return string?
+local function decode_json(body)
+  local ok, value = pcall(vim.json.decode, body or '')
+  if not ok or type(value) ~= 'table' then
+    return nil, 'invalid JSON response'
+  end
+  return value, nil
+end
+
+---@param value any
+---@return boolean
+local function valid_version(value)
+  return type(value) == 'string' and value:match('^%d[%w._-]*$') ~= nil
+end
+
+--- Discover the server bundle referenced by the latest platform-specific
+--- JetBrains extension. The VSIX is only a small downloader shim; its
+--- server-bundle.json is the authoritative URL, version and checksum tuple.
+---@param on_done fun(bundle: intellij.ServerBundle?, err: string?)
+function M.latest_bundle(on_done)
+  if vim.fn.executable('curl') ~= 1 then
+    return on_done(nil, 'curl not found on $PATH')
+  end
+  if vim.fn.executable('unzip') ~= 1 then
+    return on_done(nil, 'unzip not found on $PATH')
+  end
+
+  local target = open_vsx_target()
+  if not target then
+    return on_done(nil, 'unsupported platform for Open VSX update discovery')
+  end
+
+  local metadata_url = ('%s/%s/latest'):format(OPEN_VSX_API, target)
+  vim.system({ 'curl', '-fsSL', metadata_url }, { text = true }, function(meta_result)
+    vim.schedule(function()
+      if meta_result.code ~= 0 then
+        return on_done(
+          nil,
+          ('latest-version lookup failed (curl %d) for %s\n%s'):format(
+            meta_result.code,
+            metadata_url,
+            meta_result.stderr or ''
+          )
+        )
+      end
+
+      local metadata, decode_err = decode_json(meta_result.stdout)
+      local vsix_url = metadata and metadata.files and metadata.files.download
+      if not metadata then
+        return on_done(nil, 'latest-version lookup returned ' .. tostring(decode_err))
+      end
+      if type(vsix_url) ~= 'string'
+          or not vsix_url:match(
+            '^https://open%-vsx%.org/api/JetBrains/intellij%-server/[%w._-]+/[%w._-]+/file/[%w.@_-]+%.vsix$'
+          ) then
+        return on_done(nil, 'latest-version lookup returned an unexpected VSIX URL')
+      end
+
+      local vsix = vim.fn.tempname() .. '.vsix'
+      vim.system({ 'curl', '-fL', '--retry', '3', '-o', vsix, vsix_url }, { text = true }, function(dl)
+        vim.schedule(function()
+          if dl.code ~= 0 then
+            vim.fn.delete(vsix)
+            return on_done(
+              nil,
+              ('extension metadata download failed (curl %d)\n%s'):format(dl.code, dl.stderr or '')
+            )
+          end
+
+          vim.system({ 'unzip', '-p', vsix, 'extension/server-bundle.json' }, { text = true }, function(unzip)
+            vim.schedule(function()
+              vim.fn.delete(vsix)
+              if unzip.code ~= 0 then
+                return on_done(nil, 'latest extension has no readable server-bundle.json')
+              end
+
+              local bundle, bundle_err = decode_json(unzip.stdout)
+              if not bundle then
+                return on_done(nil, 'server-bundle.json contains ' .. tostring(bundle_err))
+              end
+              if not valid_version(bundle.version) then
+                return on_done(nil, 'server-bundle.json contains an invalid version')
+              end
+              if type(bundle.archiveName) ~= 'string'
+                  or bundle.archiveName:find('..', 1, true) then
+                return on_done(nil, 'server-bundle.json contains an invalid archive name')
+              end
+              local stem = 'intellij-server-' .. bundle.version
+              local valid_archive = bundle.archiveName == stem .. '.tar.gz'
+                or bundle.archiveName == stem .. '-aarch64.tar.gz'
+                or bundle.archiveName == stem .. '.win.zip'
+                or bundle.archiveName == stem .. '-aarch64.win.zip'
+                or bundle.archiveName == stem .. '.sit'
+                or bundle.archiveName == stem .. '-aarch64.sit'
+              if not valid_archive then
+                return on_done(nil, 'server-bundle.json contains an invalid archive name')
+              end
+              local expected_url = ('%s/%s/%s'):format(BASE, bundle.version, bundle.archiveName)
+              if bundle.url ~= expected_url then
+                return on_done(nil, 'server-bundle.json contains an unexpected download URL')
+              end
+              if type(bundle.sha256) ~= 'string' or #bundle.sha256 ~= 64 or not bundle.sha256:match('^%x+$') then
+                return on_done(nil, 'server-bundle.json contains an invalid checksum')
+              end
+
+              on_done(bundle, nil)
+            end)
+          end)
+        end)
+      end)
+    end)
+  end)
 end
 
 ---@return string? target
@@ -115,6 +262,14 @@ function M.installed()
     end
   end
   table.sort(out, function(a, b)
+    local av = vim.split(a.version, '.', { plain = true })
+    local bv = vim.split(b.version, '.', { plain = true })
+    for i = 1, math.max(#av, #bv) do
+      local an, bn = tonumber(av[i]) or 0, tonumber(bv[i]) or 0
+      if an ~= bn then
+        return an > bn
+      end
+    end
     return a.version > b.version
   end)
   return out
@@ -134,9 +289,11 @@ function M.disk_usage(dir)
   return nil
 end
 
---- Age in whole days of an install, from the build's own file timestamps
---- (the tarball preserves them, so this is the build date, not the download
---- date). Preview builds stop working ~30 days after release.
+--- Age in whole days of an install, from the build's own file timestamps.
+--- JetBrains' current tarball stores epoch milliseconds as if they were epoch
+--- seconds (1785765 instead of 1785765000), so normalize that recognizable
+--- pre-2000 value before calculating. Preview builds stop working ~30 days
+--- after release.
 ---@param dir string install root (a managed version dir or a server root)
 ---@return integer? days
 function M.build_age_days(dir)
@@ -149,7 +306,11 @@ function M.build_age_days(dir)
   if not stat then
     return nil
   end
-  return math.floor((os.time() - stat.mtime.sec) / 86400)
+  local built_at = stat.mtime.sec
+  if built_at < 946684800 then -- 2000-01-01; current archives are scaled by 1000
+    built_at = built_at * 1000
+  end
+  return math.max(0, math.floor((os.time() - built_at) / 86400))
 end
 
 --- Delete every managed install except the newest (and except whatever
@@ -197,7 +358,8 @@ end
 --- fires on the main loop.
 ---@param version? string
 ---@param on_done? fun(path: string?, err: string?)
-function M.install(version, on_done)
+---@param bundle? intellij.ServerBundle
+function M.install(version, on_done, bundle)
   version = version or M.DEFAULT_VERSION
   on_done = on_done or function() end
 
@@ -208,7 +370,12 @@ function M.install(version, on_done)
     return on_done(existing, nil)
   end
 
-  local url, confirmed = M.url(version)
+  local url, confirmed
+  if bundle then
+    url, confirmed = bundle.url, true
+  else
+    url, confirmed = M.url(version)
+  end
   if not confirmed then
     vim.notify(
       'intellij-lsp: this platform\'s archive name is inferred, not confirmed.\nTrying ' .. url,
@@ -236,7 +403,7 @@ function M.install(version, on_done)
         return
       end
 
-      local ok, message = M.verify(archive)
+      local ok, message = M.verify(archive, bundle and bundle.sha256 or nil)
       if not ok then
         vim.fn.delete(dest, 'rf')
         on_done(nil, message)
@@ -251,12 +418,14 @@ function M.install(version, on_done)
           vim.fn.delete(archive)
 
           if ex.code ~= 0 then
+            vim.fn.delete(dest, 'rf')
             on_done(nil, ('extract failed (%d)\n%s'):format(ex.code, ex.stderr or ''))
             return
           end
 
           local launcher = require('intellij-lsp.server').resolve_dir(dest)
           if not launcher then
+            vim.fn.delete(dest, 'rf')
             on_done(nil, 'archive unpacked but no bin/intellij-server inside ' .. dest)
             return
           end
@@ -267,6 +436,21 @@ function M.install(version, on_done)
         end)
       end)
     end)
+  end)
+end
+
+--- Discover and install the server build referenced by the latest JetBrains
+--- extension for this platform.
+---@param on_done? fun(path: string?, err: string?, bundle: intellij.ServerBundle?)
+function M.install_latest(on_done)
+  on_done = on_done or function() end
+  M.latest_bundle(function(bundle, err)
+    if not bundle then
+      return on_done(nil, err, nil)
+    end
+    M.install(bundle.version, function(path, install_err)
+      on_done(path, install_err, bundle)
+    end, bundle)
   end)
 end
 

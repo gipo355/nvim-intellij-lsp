@@ -409,6 +409,46 @@ Workaround: type the capital (`Str`). A client-side fix would need a
 "shadow capitalization" retry (didChange a capitalized prefix → re-request →
 restore) — not implemented. Worth reporting upstream.
 
+The broader IntelliJ completion mode is also not hidden behind an LSP client
+capability. In build 263.2689.0, the Java completion request implementation
+calls `LightModCompletionServiceImpl.getItems(...)` with invocation count `1`
+and `CompletionType.BASIC` hardcoded. LSP has no standard request field for
+IntelliJ's second invocation or SMART completion.
+
+Probed 2026-08-08 against a warm, minimal Java project (raw LSP responses,
+before any completion UI filtering):
+
+| Expression prefix | Raw result |
+| --- | --- |
+| `A` where the expected type is an enum | `State.ACTIVE`, `State.ARCHIVED`, etc. |
+| `A` where the enum type is in another package | same, plus an `additionalTextEdits` import for the enum type |
+| `A` for static fields declared in the current class | fields are returned unqualified |
+| `fi` for a static method declared in the current class | method is returned unqualified |
+| `fi` for a static method declared in another class | absent |
+| `StaticCatalog.fi` | method is returned |
+
+Expected-type enum completion is therefore present, including automatic import:
+the item uses `filterText = "ACTIVE"`, a text edit such as
+`ExternalState.ACTIVE`, and an additional edit adding
+`import external.ExternalState`. A frontend must match on `filterText`, not only
+the qualified display label. The user's current blink.cmp build does use
+`filterText`, so a failure in a concrete enum site needs that site's raw item
+and expected-type context rather than another advertised capability.
+
+Unqualified static members from arbitrary other classes are different: the
+server never emits them in its one BASIC pass. The registered LSP providers
+cover current-scope references, expected-type members, and non-imported classes,
+but not IntelliJ desktop's broader second-invocation static-member search. There
+is consequently no auto-static-import edit for the client to apply. This is an
+upstream server feature gap, not an omitted Neovim capability.
+
+Typing the unresolved static field/method name by hand does not recover the
+feature through `textDocument/codeAction`, either: the same fixture offered no
+static-import quick fix (the field only got “create local variable”; the method
+only got organize imports). The desktop classes for global/static-member lookup
+exist in the bundled Java plugin, but the LSP completion provider set does not
+expose that flow.
+
 ### 6.11 Server heap defaults to 2 GB
 
 `bin/intellij-server.vmoptions` hardcodes `-Xmx2048m` (plus
@@ -427,8 +467,19 @@ java-debug/java-test DAP bundles, and lombok javaagent wiring.
 ### 6.13 Preview builds expire
 
 Each build stops working ~30 days after release; new builds roughly every 2
-weeks. Re-run `:IntellijInstall <version>`, re-accept the EULA. Free during
+weeks. Run `:IntellijUpdate`, then re-accept the EULA if it changed. Free during
 preview; Ultimate required from 1.0 (§8).
+
+`:IntellijUpdate` now discovers the latest platform extension through Open VSX,
+reads its authoritative `server-bundle.json`, verifies the bundle's published
+SHA-256, installs it side-by-side, and restarts attached clients. A newer build
+gets its own expiry window; downloading the same build again would not, so an
+already-installed latest build is left alone. A changed agreement is prompted
+for and the restart follows acceptance. There is no local compilation step:
+JetBrains distributes a prebuilt server archive. Explicit `server_dir`,
+`$INTELLIJ_SERVER_DIR`, and `version` pins remain authoritative and the command
+names whichever one (or a newer local install) prevents the new managed install
+from becoming active.
 
 ### 6.14 The server never compiles — launch needs prebuilt classes
 
