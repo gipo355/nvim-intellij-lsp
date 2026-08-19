@@ -141,6 +141,15 @@ function M.build()
       -- Two separate argv entries, matching the VS Code client exactly:
       --   r.push("--stdio"), storageUri && r.push("--system-path", fsPath)
       local argv = { exe, '--stdio', '--system-path', workspace.for_root(root) }
+
+      -- Newer builds take the accepted agreement here instead of in
+      -- `initializationOptions.eulaHash`, and quit with exit code 11 without it.
+      local eula = require('intellij-lsp.eula')
+      local accepted, hash = eula.accepted(exe)
+      if accepted and hash and eula.cli_supported(exe) then
+        table.insert(argv, '--eula=' .. hash)
+      end
+
       if opts.log_level then
         table.insert(argv, '--log-level=' .. opts.log_level)
       end
