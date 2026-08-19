@@ -92,6 +92,7 @@ launcher's `--help`. None of it is guessed.
 | build JVM | `JAVA_HOME` env — see §6.4, this is ours, not the client's |
 | telemetry | `INTELLIJ_DATA_SHARING` env (`full`/`anonymous`/`test`/`none`) |
 | region | `INTELLIJ_REGION` env |
+| EULA | `--eula=<hash>` from 263.3533 on, `initializationOptions.eulaHash` before |
 | init options | `eulaHash`, `defaultSdk`, `defaultJdk`, `buildTools[rootUri]` |
 | settings | pulled via `workspace/configuration`, two namespaces (§6.6) |
 
@@ -284,6 +285,12 @@ expected hash 34d850193ee04897, got <none>. Pass the accepted EULA hash as
 An early reading of the extension suggested this was client-side only (it keeps
 `jetbrains.intellij.eulaAcceptedHash` in VS Code's `globalState`). **That was
 wrong** — the server checks independently.
+
+Build 263.3533 moved the check ahead of the handshake: the launcher prints the
+agreement and exits **11** unless the hash arrives as `--eula=<hash>`, an option
+older builds reject outright. `eula.cli_supported()` probes `--help` once per
+launcher to tell them apart; `before_init` keeps sending `eulaHash` for the old
+ones.
 
 `eulaHash` = first 16 hex chars of `sha256(EULA.txt)`, from the server root.
 Verified exactly. `eula.lua` computes it from the file rather than hardcoding,

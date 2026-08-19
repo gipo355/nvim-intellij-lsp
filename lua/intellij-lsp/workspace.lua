@@ -22,6 +22,13 @@ function M.base()
   return table.concat({ vim.fn.stdpath('cache'), 'intellij-lsp', 'workspaces' }, sep)
 end
 
+--- Resolved system paths, keyed by root.
+---
+--- `on_exit` releases the claim from a fast event context, where `vim.fn` is
+--- forbidden (`E5560`). The path is the same for the life of the client, so
+--- the claim taken in `on_init` warms this and the release reads it back.
+local dirs = {}
+
 --- System path for a project root.
 ---
 --- Named `<basename>-<hash>` so it stays readable when you go looking, while
@@ -29,13 +36,23 @@ end
 ---@param root string
 ---@return string
 function M.for_root(root)
-  local name = vim.fn.fnamemodify(root, ':p:h:t')
-  if name == '' then
-    name = 'root'
+  local dir = dirs[root]
+  if not dir then
+    local name = vim.fn.fnamemodify(root, ':p:h:t')
+    if name == '' then
+      name = 'root'
+    end
+    local hash = vim.fn.sha256(vim.fn.fnamemodify(root, ':p')):sub(1, 8)
+    dir = M.base() .. sep .. name .. '-' .. hash
+    dirs[root] = dir
   end
-  local hash = vim.fn.sha256(vim.fn.fnamemodify(root, ':p')):sub(1, 8)
-  local dir = M.base() .. sep .. name .. '-' .. hash
-  vim.fn.mkdir(dir, 'p')
+
+  -- The directory has to exist for the pidfile; `:IntellijCleanWorkspace`
+  -- deletes it out from under a cached path, so re-create it whenever we are
+  -- somewhere `vim.fn` is allowed.
+  if not vim.in_fast_event() then
+    vim.fn.mkdir(dir, 'p')
+  end
   return dir
 end
 

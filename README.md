@@ -157,9 +157,11 @@ and shared across instances. A second Neovim on the same root fails with
 `LOCK: Resource temporarily unavailable`. `:IntellijCleanWorkspace!` clears both
 when a stale lock survives a crash.
 
-**The EULA is enforced by the server.** It refuses to initialize until the client
-passes `initializationOptions.eulaHash` — the first 16 hex chars of
-`sha256(EULA.txt)` from the server root. `:IntellijAcceptEula` shows the text and
+**The EULA is enforced by the server.** It refuses to start until the client
+passes the first 16 hex chars of `sha256(EULA.txt)` from the server root — as
+`--eula=<hash>` on the command line from build 263.3533 on, as
+`initializationOptions.eulaHash` before that. Which one is probed from
+`--help`; without it the newer builds quit with exit code 11. `:IntellijAcceptEula` shows the text and
 records your acceptance; nothing is accepted on your behalf. A new server build
 means a new hash and a fresh acceptance.
 

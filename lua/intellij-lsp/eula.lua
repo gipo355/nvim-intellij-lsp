@@ -92,6 +92,24 @@ function M.accepted(launcher)
   return read_store()[hash] ~= nil, hash
 end
 
+local cli_support = {}
+
+--- Whether this build takes the accepted hash on the command line.
+---
+--- Builds through 263.2689 read it from `initializationOptions.eulaHash`.
+--- Newer ones print the agreement and exit 11 before the handshake, and want
+--- `--eula` instead — while the older ones reject that option outright. Only
+--- `--help` tells the two apart, so probe it once per launcher.
+---@param launcher string
+---@return boolean
+function M.cli_supported(launcher)
+  if cli_support[launcher] == nil then
+    local out = vim.system({ launcher, '--help' }, { text = true }):wait(10000)
+    cli_support[launcher] = ((out.stdout or '') .. (out.stderr or '')):find('--eula', 1, true) ~= nil
+  end
+  return cli_support[launcher]
+end
+
 --- Show the agreement and ask for an explicit yes.
 ---@param launcher? string
 ---@param on_accept? fun() Called after acceptance is recorded, in place of the
