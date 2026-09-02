@@ -83,30 +83,17 @@ function M.analyzer_cache()
   return xdg .. '/JetBrains/analyzer'
 end
 
---- What the last import attempt in this project's server log actually did.
---- The single most diagnostic fact about this server: when import fails it
---- keeps serving an empty workspace model, and every feature "works" by
---- returning nothing.
----@param root string
----@return { libraries: integer?, build: 'successful'|'failed'|nil }?
-function M.import_status(root)
-  local path = M.log_file(root)
-  local f = io.open(path, 'r')
-  if not f then
-    return nil
-  end
+---@alias intellij-lsp.ImportStatus { libraries: integer?, build: 'successful'|'failed'|nil, wanted_toolchain: integer? }
 
-  -- Only the tail matters (the latest import); logs grow to many MB.
-  local size = f:seek('end')
-  f:seek('set', math.max(0, size - 512 * 1024))
-  local tail = f:read('*a') or ''
-  f:close()
-
+--- Import evidence in a chunk of server log. Later lines win.
+---@param text string
+---@return intellij-lsp.ImportStatus?
+local function parse_import(text)
   local status = {}
-  for n in tail:gmatch('There are (%d+) libraries to load') do
+  for n in text:gmatch('There are (%d+) libraries to load') do
     status.libraries = tonumber(n)
   end
-  for line in tail:gmatch('[^\n]+') do
+  for line in text:gmatch('[^\n]+') do
     if line:find('BUILD SUCCESSFUL', 1, true) then
       status.build = 'successful'
     elseif line:find('BUILD FAILED', 1, true) or line:find('ToolchainProvisioningException', 1, true) then
@@ -118,7 +105,7 @@ function M.import_status(root)
   -- fails to configure even though N is installed — because version-manager
   -- layouts (mise, …) are invisible to its auto-detection, and the Tooling
   -- API forwards no GRADLE_OPTS to pass extra installation paths through.
-  local want = tail:match('matching: {languageVersion=(%d+)')
+  local want = text:match('matching: {languageVersion=(%d+)')
   if want then
     status.wanted_toolchain = tonumber(want)
   end
@@ -126,6 +113,35 @@ function M.import_status(root)
     return nil
   end
   return status
+end
+
+--- Import outcome seen live by `watch_import`, keyed by root. The markers
+--- land once at session start, and a busy server pushes them out of any
+--- bounded tail scan within minutes (#5).
+---@type table<string, intellij-lsp.ImportStatus>
+local observed = {}
+
+--- What the last import attempt in this project's server log actually did.
+--- The single most diagnostic fact about this server: when import fails it
+--- keeps serving an empty workspace model, and every feature "works" by
+--- returning nothing.
+---@param root string
+---@return intellij-lsp.ImportStatus?
+function M.import_status(root)
+  local path = M.log_file(root)
+  local f = io.open(path, 'r')
+  if not f then
+    return nil
+  end
+
+  -- The tail is newest, so it wins when it still holds markers; logs grow
+  -- to many MB. Past that, what the watcher saw at session start.
+  local size = f:seek('end')
+  f:seek('set', math.max(0, size - 512 * 1024))
+  local text = f:read('*a') or ''
+  f:close()
+
+  return parse_import(text) or observed[root]
 end
 
 --- Which live Neovim owns this project's server, going by the pidfile the
@@ -169,11 +185,12 @@ function M.release(root)
 end
 
 --- Watch the server log for the outcome of the import that starts after
---- `now`, and call `on_done({ build, libraries })` once it lands. The server
---- publishes no $/progress for imports (verified), so the log tail is the
---- only signal. Times out silently after 15 minutes.
+--- `now`, and call `on_done(status)` once it lands. The server publishes no
+--- $/progress for imports (verified), so the log is the only signal. The
+--- outcome is also cached for `import_status`. Times out silently after 15
+--- minutes.
 ---@param root string
----@param on_done fun(status: { build: string?, libraries: integer? })
+---@param on_done fun(status: intellij-lsp.ImportStatus)
 function M.watch_import(root, on_done)
   local path = M.log_file(root)
   local offset = 0
@@ -184,6 +201,7 @@ function M.watch_import(root, on_done)
       f:close()
     end
   end
+  observed[root] = nil
 
   local timer = vim.uv.new_timer()
   local elapsed = 0
@@ -198,23 +216,14 @@ function M.watch_import(root, on_done)
         local appended = f:read('*a') or ''
         f:close()
 
-        local build
-        if appended:find('BUILD SUCCESSFUL', 1, true) then
-          build = 'successful'
-        elseif appended:find('BUILD FAILED', 1, true) then
-          build = 'failed'
-        end
-        local libs
-        for n in appended:gmatch('There are (%d+) libraries to load') do
-          libs = tonumber(n)
-        end
-
+        local status = parse_import(appended)
         -- The library count trails BUILD SUCCESSFUL by a moment; report once
         -- it shows up (or on failure immediately).
-        if build == 'failed' or (build == 'successful' and libs) then
+        if status and (status.build == 'failed' or (status.build == 'successful' and status.libraries)) then
           timer:stop()
           timer:close()
-          on_done({ build = build, libraries = libs })
+          observed[root] = status
+          on_done(status)
           return
         end
       end
