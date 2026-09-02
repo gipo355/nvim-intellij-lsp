@@ -341,11 +341,13 @@ function M.build()
       end
 
       -- The server sends no $/progress for the import (verified), and a cold
-      -- import is minutes of silence that reads as a dead server.
-      if opts.import_notify ~= false and client.root_dir then
+      -- import is minutes of silence that reads as a dead server. The watcher
+      -- runs regardless: :checkhealth reads the outcome it caches.
+      if client.root_dir then
         local ws = require('intellij-lsp.workspace')
+        local notify = opts.import_notify ~= false
         local cold = vim.fn.filereadable(ws.log_file(client.root_dir)) ~= 1
-        if cold then
+        if notify and cold then
           vim.notify('intellij-lsp: importing project — a first import can take minutes', vim.log.levels.INFO)
         end
         local root = client.root_dir
@@ -354,7 +356,7 @@ function M.build()
           -- The ready-for-test notification is the nicer signal; only speak
           -- up here when it hasn't already (it arrives after indexing, this
           -- one right after the build).
-          if status.build == 'successful' and not announced[root] then
+          if notify and status.build == 'successful' and not announced[root] then
             announced[root] = true
             vim.notify(
               ('intellij-lsp: project imported (%d libraries), indexing…'):format(status.libraries or 0),
