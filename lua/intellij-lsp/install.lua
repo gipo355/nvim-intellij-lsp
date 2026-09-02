@@ -43,12 +43,21 @@ local function sha256(path)
   local cmds = {
     { 'sha256sum', path },
     { 'shasum', '-a', '256', path },
+    -- Ships with every Windows; the coreutils pair does not.
+    { 'certutil', '-hashfile', path, 'SHA256' },
   }
   for _, cmd in ipairs(cmds) do
     if vim.fn.executable(cmd[1]) == 1 then
       local out = vim.system(cmd, { text = true }):wait(120000)
       if out.code == 0 and out.stdout then
-        return out.stdout:match('^(%x+)')
+        -- coreutils prefixes the line with `\` when the path contains a
+        -- backslash (#4); certutil prints the digest on its second line.
+        for line in out.stdout:gmatch('[^\r\n]+') do
+          local digest = line:match('^\\?(%x+)')
+          if digest and #digest == 64 then
+            return digest
+          end
+        end
       end
     end
   end
