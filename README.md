@@ -7,7 +7,7 @@
 >
 > Made with ai.
 
-> [!INFO]
+> [!NOTE]
 > It appears JetBrains is working on an official implementation https://github.com/JetBrains/intellij-lsp.nvim
 
 Neovim client for JetBrains' IntelliJ language server — the one behind the
